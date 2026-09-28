@@ -51,10 +51,54 @@ extension MenuBarItemManager {
         items: [MenuBarItem],
         controlItems: ControlItemPair
     ) -> Bool {
-        // Ejected items diverge by design and would re-dispatch every cycle. Skip
-        // them only with the feature on, a notched active display, and the item in hidden.
-        let overflowSkipActive = (appState?.settings.advanced.enableMenuBarItemOverflow ?? false)
-            && ((NSScreen.screenWithActiveMenuBar ?? NSScreen.main)?.hasNotch ?? false)
+        // Ejected items diverge by design. Keep exempting the ones that still
+        // cannot fit, but let the saved-layout apply return those that can.
+        let activeScreen = NSScreen.screenWithActiveMenuBar
+        let overflowSkipActive = LayoutSolver.shouldManageNotchOverflow(
+            overflowEnabled: appState?.settings.advanced.enableMenuBarItemOverflow ?? false,
+            activeScreenKnown: activeScreen != nil,
+            activeHasNotch: activeScreen?.hasNotch ?? false,
+            activeIsMainDisplay: activeScreen?.displayID == CGMainDisplayID()
+        )
+        var overflowExemptUIDs = overflowSkipActive ? notchOverflowEjectedUIDs : []
+        if overflowSkipActive,
+           !overflowExemptUIDs.isEmpty,
+           let activeScreen,
+           let notch = activeScreen.frameOfNotch,
+           let appState
+        {
+            let budget = Self.computeNotchOverflowBudget(
+                items: items,
+                screen: activeScreen,
+                notch: notch,
+                spacingOffset: appState.spacingManager.offset
+            )
+            let visibleWidth = items
+                .filter {
+                    Self.isBudgetedManagedItem($0)
+                        && $0.bounds.minX >= controlItems.hidden.bounds.maxX
+                }
+                .reduce(CGFloat.zero) { $0 + $1.bounds.width }
+            let alwaysHiddenMaxX = controlItems.alwaysHidden?.bounds.maxX
+            let liveHiddenUIDs = Set(items.filter { item in
+                item.bounds.maxX <= controlItems.hidden.bounds.minX
+                    && (alwaysHiddenMaxX.map { item.bounds.minX >= $0 } ?? true)
+            }.map(\.uniqueIdentifier))
+            let widths = Dictionary(
+                items.filter { overflowExemptUIDs.contains($0.uniqueIdentifier) }
+                    .map { ($0.uniqueIdentifier, $0.bounds.width) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            let restorable = LayoutSolver.restorableNotchOverflowUIDs(
+                savedVisibleOrder: savedSectionOrder["visible"] ?? [],
+                ejectedUIDs: overflowExemptUIDs,
+                liveHiddenUIDs: liveHiddenUIDs,
+                uidWidths: widths,
+                currentVisibleWidth: visibleWidth,
+                availableWidth: budget.availableWidth
+            )
+            overflowExemptUIDs.subtract(restorable)
+        }
         let knownBaseIdentifiers = Set(items.map(\.tag.stableIdentifierBase))
         let knownLiveIdentifiers = Set(items.map(\.uniqueIdentifier))
         // With no triggers, isTriggerProtected goes quadratic on a per-cycle path.
@@ -83,7 +127,7 @@ extension MenuBarItemManager {
             sectionLookup: Self.savedLayoutSectionLookup(savedSectionOrder: savedSectionOrder),
             hiddenBounds: controlItems.hidden.bounds,
             alwaysHiddenBounds: controlItems.alwaysHidden?.bounds,
-            overflowExemptUIDs: overflowSkipActive ? notchOverflowEjectedUIDs : [],
+            overflowExemptUIDs: overflowExemptUIDs,
             activelyShownTags: Set(temporarilyShownItemContexts.map(\.tag.tagIdentifier))
         )
     }

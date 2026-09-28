@@ -14,6 +14,41 @@ import Testing
 /// per-item subtraction. Pure arithmetic over its inputs.
 @Suite("Plan notch overflow")
 struct PlanNotchOverflowTests {
+    @Test("Previously ejected icons return as space becomes available")
+    func restoresOnlyIconsThatFit() {
+        let restored = LayoutSolver.restorableNotchOverflowUIDs(
+            savedVisibleOrder: ["left", "middle", "right"],
+            ejectedUIDs: ["left", "middle"],
+            liveHiddenUIDs: ["left", "middle"],
+            uidWidths: ["left": 30, "middle": 24],
+            currentVisibleWidth: 50,
+            availableWidth: 85
+        )
+        #expect(restored == ["middle"])
+    }
+
+    @Test("No restore is planned from stale or unsafe geometry")
+    func doesNotRestoreStaleItems() {
+        let restored = LayoutSolver.restorableNotchOverflowUIDs(
+            savedVisibleOrder: ["a"],
+            ejectedUIDs: ["a"],
+            liveHiddenUIDs: [],
+            uidWidths: ["a": 20],
+            currentVisibleWidth: 10,
+            availableWidth: 100
+        )
+        #expect(restored.isEmpty)
+        let invalidBudget = LayoutSolver.restorableNotchOverflowUIDs(
+            savedVisibleOrder: ["a"],
+            ejectedUIDs: ["a"],
+            liveHiddenUIDs: ["a"],
+            uidWidths: ["a": 20],
+            currentVisibleWidth: 10,
+            availableWidth: -.infinity
+        )
+        #expect(invalidBudget.isEmpty)
+    }
+
     // MARK: - Helpers
 
     /// chevron, visible profile items, unmanaged, hiddenCtrl, hidden items, ahCtrl, AH items.

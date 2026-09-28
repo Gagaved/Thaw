@@ -179,6 +179,15 @@ extension MenuBarItemManager {
             throw LayoutResetError.missingAppState
         }
 
+        // A visible reset is meant to expose usable icons. A transparent
+        // duplicate such as OpenVPN's extra status item should stay hidden.
+        let transparentDuplicates: Set<String>
+        if case .visible = target {
+            transparentDuplicates = appState.imageCache.transparentDuplicateItemIdentifiers(in: items)
+        } else {
+            transparentDuplicates = []
+        }
+
         appState.menuBarManager.iceBarPanel.close()
 
         appState.hidEventManager.stopAll()
@@ -205,7 +214,8 @@ extension MenuBarItemManager {
             }
             return items.filter { item in
                 guard item.isMovable, item.canBeHidden, !item.isControlItem,
-                      item.tag != .visibleControlItem
+                      item.tag != .visibleControlItem,
+                      !transparentDuplicates.contains(item.uniqueIdentifier)
                 else {
                     return false
                 }
@@ -228,7 +238,9 @@ extension MenuBarItemManager {
                     continue // Keep the Thaw icon in the visible section if enabled.
                 }
 
-                guard item.isMovable, item.canBeHidden, !item.isControlItem else {
+                guard item.isMovable, item.canBeHidden, !item.isControlItem,
+                      !transparentDuplicates.contains(item.uniqueIdentifier)
+                else {
                     continue
                 }
 
@@ -245,6 +257,25 @@ extension MenuBarItemManager {
                 }
             }
             return failed
+        }
+
+        if case .visible = target {
+            for item in items where transparentDuplicates.contains(item.uniqueIdentifier)
+                && item.liveBounds.minX >= controlItems.hidden.liveBounds.maxX
+            {
+                do {
+                    try await move(
+                        item: item,
+                        to: .leftOfItem(controlItems.hidden),
+                        skipInputPause: true,
+                        options: .init(watchdogTimeout: Self.layoutWatchdogTimeout)
+                    )
+                } catch {
+                    MenuBarItemManager.diagLog.error(
+                        "Failed to conceal transparent duplicate \(item.logString) during visible reset: \(error)"
+                    )
+                }
+            }
         }
 
         let firstPassItems = target.movesAllCandidatesInFirstPass

@@ -366,7 +366,11 @@ private struct IceBarContentView: View {
     let section: MenuBarSection.Name
 
     private var items: [MenuBarItem] {
-        itemManager.itemCache.managedItems(for: section)
+        let suppressed = imageCache.transparentDuplicateItemIdentifiers(
+            in: itemManager.itemCache.managedItems
+        )
+        return itemManager.itemCache.managedItems(for: section)
+            .filter { !suppressed.contains($0.uniqueIdentifier) }
     }
 
     /// The menu bar's appearance unless the Thaw Bar has its own.

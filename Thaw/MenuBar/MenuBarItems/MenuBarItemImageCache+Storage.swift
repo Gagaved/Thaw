@@ -13,6 +13,28 @@ import os.lock
 extension MenuBarItemImageCache {
     // MARK: Cache Access
 
+    /// A transparent status item is usually intentional, so suppress it only
+    /// when another captured item from the same app and with the same name has
+    /// visible pixels. User-created spacers always remain available.
+    func transparentDuplicateItemIdentifiers(in items: [MenuBarItem]) -> Set<String> {
+        let opaqueItems = items.filter { item in
+            guard let image = image(for: item.tag) else { return false }
+            return !image.cgImage.isTransparent()
+        }
+        return Set(items.compactMap { item in
+            guard !MenuBarSpacerManager.isSpacerTag(item.tag),
+                  let image = image(for: item.tag),
+                  image.cgImage.isTransparent(),
+                  opaqueItems.contains(where: { peer in
+                      peer.windowID != item.windowID
+                          && peer.tag.namespace == item.tag.namespace
+                          && peer.displayName == item.displayName
+                  })
+            else { return nil }
+            return item.uniqueIdentifier
+        })
+    }
+
     func updateAccessOrder(for tag: MenuBarItemTag) {
         if accessOrder.contains(tag) {
             accessOrder.move(members: CollectionOfOne(tag), to: accessOrder.endIndex)

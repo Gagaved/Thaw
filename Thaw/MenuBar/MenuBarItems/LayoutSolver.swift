@@ -48,6 +48,35 @@ nonisolated enum LayoutSolver {
         let updatedSectionMap: [String: String]
     }
 
+    /// Which notch-ejected items can return without displacing the items that
+    /// are already visible. Restoring from the right matches the overflow
+    /// planner's preference for items nearest Control Center.
+    static nonisolated func restorableNotchOverflowUIDs(
+        savedVisibleOrder: [String],
+        ejectedUIDs: Set<String>,
+        liveHiddenUIDs: Set<String>,
+        uidWidths: [String: CGFloat],
+        currentVisibleWidth: CGFloat,
+        availableWidth: CGFloat,
+        reserve: CGFloat = 8
+    ) -> Set<String> {
+        guard availableWidth.isFinite, availableWidth > 0 else { return [] }
+        var remaining = availableWidth - currentVisibleWidth - reserve
+        guard remaining > 0 else { return [] }
+
+        var restorable = Set<String>()
+        for uid in savedVisibleOrder.reversed()
+            where ejectedUIDs.contains(uid) && liveHiddenUIDs.contains(uid)
+        {
+            guard let width = uidWidths[uid], width > 0, width.isFinite else { continue }
+            if width <= remaining {
+                restorable.insert(uid)
+                remaining -= width
+            }
+        }
+        return restorable
+    }
+
     /// An abstract destination emitted by the LCS planner.
     ///
     /// By UID, since live items are re-fetched between moves.
